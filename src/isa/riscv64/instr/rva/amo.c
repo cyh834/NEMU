@@ -19,7 +19,6 @@
 #include <rtl/rtl.h>
 #include "../local-include/trigger.h"
 #include "../local-include/intr.h"
-#include "../local-include/trapinfo.h"
 #include "cpu/difftest.h"
 __attribute__((cold))
 def_rtl(amo_slow_path, rtlreg_t *dest, const rtlreg_t *src1, const rtlreg_t *src2) {
@@ -58,7 +57,7 @@ def_rtl(amo_slow_path, rtlreg_t *dest, const rtlreg_t *src1, const rtlreg_t *src
     cpu.amo = true;
 #endif
     // should check overlapping instead of equality
-    int success = (cpu.lr_addr == *src1) && cpu.lr_valid;
+    int success = ((cpu.lr_addr ^ *src1) >> CONFIG_RESERVATION_SET_WIDTH == 0) && cpu.lr_valid;
     Logti("cpu sc addr=%lx scr1=%lx vaild=%ld success=%d", cpu.lr_addr,*src1, cpu.lr_valid,success);
     cpu.lr_valid = 0;
     if (success) {
@@ -78,7 +77,7 @@ def_rtl(amo_slow_path, rtlreg_t *dest, const rtlreg_t *src1, const rtlreg_t *src
       // Even if scInvalid, SAF (if raised) also needs to be reported
       // Check address space range and pmp
       if (!in_pmem(paddr) || !isa_pmp_check_permission(paddr, width, MEM_TYPE_WRITE, cpu.mode)) {
-        trapInfo.tval = *src1;
+        cpu.trapInfo.tval = *src1;
         longjmp_exception(EX_SAF);
       }
     }

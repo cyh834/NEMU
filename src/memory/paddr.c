@@ -25,7 +25,6 @@
 #include <cpu/cpu.h>
 #include "../local-include/csr.h"
 #include "../local-include/intr.h"
-#include "../local-include/trapinfo.h"
 
 bool is_in_mmio(paddr_t addr);
 
@@ -134,7 +133,7 @@ static inline void pmem_write(paddr_t addr, int len, word_t data, int cross_page
 }
 
 static inline void raise_access_fault(int cause, vaddr_t vaddr) {
-  trapInfo.tval = vaddr;
+  cpu.trapInfo.tval = vaddr;
   // cpu.amo flag must be reset to false before longjmp_exception,
   // including longjmp_exception(access fault), longjmp_exception(page fault)
   cpu.amo = false;
@@ -157,7 +156,7 @@ static inline void isa_mmio_misalign_data_addr_check(paddr_t paddr, vaddr_t vadd
     Logm("addr misaligned happened: paddr:" FMT_PADDR " vaddr:" FMT_WORD " len:%d type:%d pc:%lx", paddr, vaddr, len, type, cpu.pc);
     if (ISDEF(CONFIG_MMIO_AC_SOFT)) {
       int ex = cpu.amo || type == MEM_TYPE_WRITE ? EX_SAM : EX_LAM;
-      trapInfo.tval = vaddr;
+      cpu.trapInfo.tval = vaddr;
       longjmp_exception(ex);
     }
   }
@@ -245,6 +244,12 @@ word_t paddr_read(paddr_t addr, int len, int type, int trap_type, int mode, vadd
     if (likely(is_in_mmio(addr))) {
       // check if the address is misaligned
       isa_mmio_misalign_data_addr_check(addr, vaddr, len, MEM_TYPE_READ, cross_page_load);
+#ifdef CONFIG_ENABLE_CONFIG_MMIO_SPACE
+      if (!mmio_is_real_device(addr)) {
+        raise_read_access_fault(trap_type, vaddr);
+        return 0;
+      }
+#endif // CONFIG_ENABLE_CONFIG_MMIO_SPACE
       return mmio_read(addr, len);
     }
     else raise_read_access_fault(trap_type, vaddr);
@@ -264,6 +269,12 @@ word_t paddr_read(paddr_t addr, int len, int type, int trap_type, int mode, vadd
     if (likely(is_in_mmio(addr))) {
       // check if the address is misaligned
       isa_mmio_misalign_data_addr_check(addr, vaddr, len, MEM_TYPE_READ, cross_page_load);
+#ifdef CONFIG_ENABLE_CONFIG_MMIO_SPACE
+      if (!mmio_is_real_device(addr)) {
+        raise_read_access_fault(trap_type, vaddr);
+        return 0;
+      }
+#endif // CONFIG_ENABLE_CONFIG_MMIO_SPACE
       return mmio_read(addr, len);
     }
 #endif
@@ -355,6 +366,12 @@ void paddr_write(paddr_t addr, int len, word_t data, int mode, vaddr_t vaddr) {
     if (likely(is_in_mmio(addr))) {
       // check if the address is misaligned
       isa_mmio_misalign_data_addr_check(addr, vaddr, len, MEM_TYPE_WRITE, cross_page_store);
+#ifdef CONFIG_ENABLE_CONFIG_MMIO_SPACE
+      if (!mmio_is_real_device(addr)) {
+        raise_access_fault(EX_SAF, vaddr);
+        return;
+      }
+#endif // CONFIG_ENABLE_CONFIG_MMIO_SPACE
       mmio_write(addr, len, data);
     }
     else raise_access_fault(EX_SAF, vaddr);
@@ -373,6 +390,12 @@ void paddr_write(paddr_t addr, int len, word_t data, int mode, vaddr_t vaddr) {
     if (likely(is_in_mmio(addr))) {
       // check if the address is misaligned
       isa_mmio_misalign_data_addr_check(addr, vaddr, len, MEM_TYPE_WRITE, cross_page_store);
+#ifdef CONFIG_ENABLE_CONFIG_MMIO_SPACE
+      if (!mmio_is_real_device(addr)) {
+        raise_access_fault(EX_SAF, vaddr);
+        return;
+      }
+#endif // CONFIG_ENABLE_CONFIG_MMIO_SPACE
       mmio_write(addr, len, data);
     }
     else {
@@ -546,10 +569,12 @@ store_commit_t store_commit_queue_pop(int *flag) {
     *flag = 0;
     return result;
   }
-  result = store_queue_fornt();
+  result = store_queue_front();
   store_queue_pop();
   return result;
 }
+
+store_commit_t store_commit_data;
 
 int check_store_commit(uint64_t *addr, uint64_t *data, uint8_t *mask) {
   int result = 0;
@@ -558,16 +583,20 @@ int check_store_commit(uint64_t *addr, uint64_t *data, uint8_t *mask) {
     result = 1;
   }
   else {
-    store_commit_t commit = store_queue_fornt();
+    store_commit_data = store_queue_front();
     store_queue_pop();
-    if (*addr != commit.addr || *data != commit.data || *mask != commit.mask) {
-      *addr = commit.addr;
-      *data = commit.data;
-      *mask = commit.mask;
+    if (*addr != store_commit_data.addr || *data != store_commit_data.data || *mask != store_commit_data.mask) {
+      *addr = store_commit_data.addr;
+      *data = store_commit_data.data;
+      *mask = store_commit_data.mask;
       result = 1;
     }
   }
   return result;
+}
+
+store_commit_t get_store_commit_info() {
+  return store_commit_data;
 }
 
 #endif
