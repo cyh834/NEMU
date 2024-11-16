@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-export NEMU_HOME=/root/NEMU
+export NEMU_HOME=~/NEMU
 
 # gcpt_restore is not needed for ref-so. Just skip it in Makefile.
 mkdir -p $(pwd)/resource/gcpt_restore/src
@@ -12,16 +12,12 @@ touch $(pwd)/resource/gcpt_restore/build/gcpt.bin
 # indentation of Makefile, causing make failure after fetching the
 # berkeley-softfloat-3. This dry run fixed this by fetching the
 # dependencies for the first time.
-make riscv64-xs-ref_defconfig && \
+make riscv64-cyh-ref_defconfig && \
 (make -j `nproc` || true)
 
 artifact_dir=$(pwd)/artifact
 mkdir -p $artifact_dir
 make clean
-make riscv64-xs-ref_defconfig
+make riscv64-cyh-ref_defconfig
 make -j
 cp build/riscv64-nemu-interpreter-so ${artifact_dir}
-make clean
-make riscv64-dual-xs-ref_defconfig
-make -j
-cp build/riscv64-nemu-interpreter-so ${artifact_dir}/riscv64-nemu-interpreter-dual-so
